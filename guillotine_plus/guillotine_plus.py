@@ -54,6 +54,8 @@ try:
     log_debug("Imported validator")
     from gplus_lib.preview import create_preview_layer, draw_cut_lines, remove_preview_layer, find_preview_layer
     log_debug("Imported preview")
+    from gplus_lib.slicer import slice_image, check_for_overwrites
+    log_debug("Imported slicer")
 except ImportError as e:
     log_debug(f"Library import error: {e}")
     pass
@@ -87,7 +89,6 @@ class GuillotinePlus(Gimp.PlugIn):
             )
             
             log_debug(f"Procedure type: {type(procedure)}")
-            log_debug(f"Available attributes: {dir(procedure)}")
 
             procedure.set_menu_label("Guillotine-Plus")
             procedure.set_documentation(
@@ -127,6 +128,53 @@ class GuillotinePlus(Gimp.PlugIn):
                 0, 1000, 0,
                 GObject.ParamFlags.READWRITE
             )
+
+            # Output directory
+            procedure.add_file_argument(
+                "output-directory",
+                "Output Directory",
+                "Directory where tiles will be saved",
+                Gimp.FileChooserAction.SELECT_FOLDER,
+                True, # none_ok
+                None,
+                GObject.ParamFlags.READWRITE
+            )
+
+            # Filename prefix
+            procedure.add_string_argument(
+                "filename-prefix",
+                "Filename Prefix",
+                "Prefix for output filenames",
+                "tile",
+                GObject.ParamFlags.READWRITE
+            )
+
+            # Output format
+            format_choice = Gimp.Choice.new()
+            format_choice.add("png", 0, "PNG", "")
+            format_choice.add("jpg", 1, "JPEG", "")
+            format_choice.add("webp", 2, "WebP", "")
+            procedure.add_choice_argument(
+                "output-format",
+                "Output Format",
+                "File format for sliced tiles",
+                format_choice,
+                "png",
+                GObject.ParamFlags.READWRITE
+            )
+
+            # Execute mode
+            mode_choice = Gimp.Choice.new()
+            mode_choice.add("preview", 0, "Preview Only", "")
+            mode_choice.add("slice", 1, "Slice and Save", "")
+            procedure.add_choice_argument(
+                "execute-mode",
+                "Execute Mode",
+                "Preview cut lines or perform actual slicing",
+                mode_choice,
+                "preview",
+                GObject.ParamFlags.READWRITE
+            )
             
             log_debug("Procedure created successfully")
             return procedure
@@ -142,8 +190,12 @@ class GuillotinePlus(Gimp.PlugIn):
             tile_width = config.get_property("tile-width")
             tile_height = config.get_property("tile-height")
             divider_width = config.get_property("divider-width")
+            output_dir_file = config.get_property("output-directory")
+            prefix = config.get_property("filename-prefix")
+            format_ext = config.get_property("output-format")
+            execute_mode = config.get_property("execute-mode")
             
-            log_debug(f"Parameters: w={tile_width}, h={tile_height}, d={divider_width}")
+            log_debug(f"Parameters: w={tile_width}, h={tile_height}, d={divider_width}, mode={execute_mode}")
 
             if run_mode == Gimp.RunMode.INTERACTIVE:
                 GimpUi.init("guillotine-plus")
@@ -160,6 +212,10 @@ class GuillotinePlus(Gimp.PlugIn):
                 tile_width = config.get_property("tile-width")
                 tile_height = config.get_property("tile-height")
                 divider_width = config.get_property("divider-width")
+                output_dir_file = config.get_property("output-directory")
+                prefix = config.get_property("filename-prefix")
+                format_ext = config.get_property("output-format")
+                execute_mode = config.get_property("execute-mode")
 
             # Core logic execution
             image_width = image.get_width()
@@ -174,44 +230,71 @@ class GuillotinePlus(Gimp.PlugIn):
                 Gimp.message(f"Guillotine-Plus Error: {error_msg}")
                 return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(error_msg))
 
-            image.undo_group_start()
-            try:
-                # 1. Calculate regions and cut lines
-                tiles, metadata = calculate_tile_regions(
-                    image_width, image_height, 
-                    tile_width, tile_height, divider_width
-                )
+            # 1. Calculate regions
+            tiles, metadata = calculate_tile_regions(
+                image_width, image_height, 
+                tile_width, tile_height, divider_width
+            )
+
+            if execute_mode == "preview":
+                # Preview logic
                 v_lines, h_lines = calculate_cut_lines(
                     image_width, image_height, 
                     tile_width, tile_height, divider_width
                 )
                 
-                # 2. Manage preview layer
-                existing = find_preview_layer(image)
-                if existing:
-                    remove_preview_layer(image, existing)
-                
-                preview = create_preview_layer(image)
-                if preview:
-                    draw_cut_lines(image, preview, v_lines, h_lines)
-                
-                Gimp.message(
-                    f"Guillotine-Plus: Preview created for {metadata['total_tiles']} tiles "
-                    f"({metadata['cols']} columns x {metadata['rows']} rows)."
-                )
-                
-            except Exception as e:
-                msg = f"Guillotine-Plus Unexpected Error: {str(e)}"
-                log_debug(msg)
-                Gimp.message(msg)
-                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(msg))
-            finally:
-                image.undo_group_end()
-                Gimp.displays_flush()
-            
+                image.undo_group_start()
+                try:
+                    # 2. Manage preview layer
+                    existing = find_preview_layer(image)
+                    if existing:
+                        remove_preview_layer(image, existing)
+                    
+                    preview = create_preview_layer(image)
+                    if preview:
+                        draw_cut_lines(image, preview, v_lines, h_lines)
+                    
+                    Gimp.message(
+                        f"Guillotine-Plus: Preview created for {metadata['total_tiles']} tiles "
+                        f"({metadata['cols']} columns x {metadata['rows']} rows)."
+                    )
+                except Exception as e:
+                    msg = f"Guillotine-Plus Preview Error: {str(e)}"
+                    log_debug(msg)
+                    Gimp.message(msg)
+                finally:
+                    image.undo_group_end()
+                    Gimp.displays_flush()
+            else:
+                # Execution mode: SLICE
+                if not output_dir_file or not output_dir_file.get_path():
+                    Gimp.message("Guillotine-Plus Error: No output directory selected.")
+                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error("No output directory"))
+
+                # Perform slicing
+                try:
+                    count, paths = slice_image(
+                        image, 
+                        tiles, 
+                        output_dir_file, 
+                        prefix, 
+                        format_ext, 
+                        log_debug
+                    )
+                    Gimp.message(f"Guillotine-Plus: Successfully saved {count} tiles to {output_dir_file.get_path()}")
+                except Exception as e:
+                    msg = f"Guillotine-Plus Slicing Error: {str(e)}"
+                    log_debug(msg)
+                    import traceback
+                    log_debug(traceback.format_exc())
+                    Gimp.message(msg)
+                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(msg))
+
             return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
         except Exception as e:
             log_debug(f"Critical error in run loop: {e}")
+            import traceback
+            log_debug(traceback.format_exc())
             return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(str(e)))
 
 if __name__ == "__main__":
