@@ -6,6 +6,16 @@ gi.require_version('Gimp', '3.0')
 gi.require_version('GimpUi', '3.0')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
+import os
+import sys
+
+import gi
+gi.require_version('Gimp', '3.0')
+gi.require_version('GimpUi', '3.0')
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
+import os
+import sys
 
 class GuillotinePlus(Gimp.PlugIn):
     """Guillotine-Plus: Efficient image slicing for GIMP 3.0"""
@@ -29,6 +39,9 @@ class GuillotinePlus(Gimp.PlugIn):
         procedure.set_menu_label("Guillotine-Plus")
         procedure.add_menu_path("<Image>/Filters/Utils/")
         
+        procedure.set_image_types("*")
+        procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
+        
         procedure.set_documentation(
             "Slice image into tiles with dividers",
             "Efficiently slice images into predefined, evenly sized tiles, with optional discardable divider lines.",
@@ -36,7 +49,7 @@ class GuillotinePlus(Gimp.PlugIn):
         )
         procedure.set_attribution("Antigravity & Karol", "Antigravity", "2026")
         
-        # Base arguments
+        # Add parameters
         procedure.add_int_argument(
             "tile-width",
             "Tile Width",
@@ -80,8 +93,8 @@ class GuillotinePlus(Gimp.PlugIn):
         image.undo_group_start()
         
         try:
+            # For now, just show a message confirming the parameters
             Gimp.message(f"Guillotine-Plus: Ready to cut {tile_width}x{tile_height} tiles with {divider_width}px dividers.")
-            # Implementation will go here in Phase 2 & 3
             
         except Exception as e:
             Gimp.message(f"Error: {str(e)}")
@@ -93,4 +106,5 @@ class GuillotinePlus(Gimp.PlugIn):
         
         return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
 
-Gimp.main(GuillotinePlus.__gtype__, __file__)
+if __name__ == "__main__":
+    Gimp.main(GuillotinePlus.__gtype__, sys.argv)
