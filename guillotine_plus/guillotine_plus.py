@@ -2,168 +2,223 @@
 # -*- coding: utf-8 -*-
 """
 Guillotine-Plus: Efficient image slicing for GIMP 3.0
-
-A GIMP plugin to slice images into predefined, evenly sized tiles,
-with optional discardable divider lines.
 """
 
-import gi
-gi.require_version('Gimp', '3.0')
-gi.require_version('GimpUi', '3.0')
-gi.require_version('Gtk', '3.0')
-from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
 import sys
 import os
+import time
 
-# Add lib directory to path for imports
-plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Debug logging setup - MOVED TO TOP
+ENABLE_DEBUG_LOGGING = True
+LOG_FILE = "/tmp/guillotine_plus_debug.log"
+
+def log_debug(message):
+    if ENABLE_DEBUG_LOGGING:
+        try:
+            with open(LOG_FILE, "a") as f:
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{timestamp}] {message}\n")
+        except Exception:
+            pass 
+
+log_debug("Guillotine-Plus script starting...")
+
+try:
+    import gi
+    log_debug("Imported gi")
+    gi.require_version('Gimp', '3.0')
+    log_debug("Required Gimp 3.0")
+    gi.require_version('GimpUi', '3.0')
+    log_debug("Required GimpUi 3.0")
+    gi.require_version('Gegl', '0.4')
+    log_debug("Required Gegl 0.4")
+    from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk, Gegl
+    log_debug("Imported GObject/Gimp repositories")
+except Exception as e:
+    log_debug(f"CRITICAL IMPORT ERROR: {e}")
+    # We continue, but it will likely fail later if these are missing.
+    # However, for debugging, knowing WHICH one failed is key.
+
+# Set up gplus_lib import path
+plugin_dir = os.path.dirname(os.path.abspath(__file__))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-from lib.calculator import calculate_tile_regions, calculate_cut_lines
-from lib.validator import validate_parameters
-from lib.preview import create_preview_layer, draw_cut_lines, remove_preview_layer, find_preview_layer
+log_debug(f"Plugin directory: {plugin_dir}")
+log_debug("Attempting to import gplus_lib...")
+
+try:
+    from gplus_lib.calculator import calculate_tile_regions
+    log_debug("Imported calculator")
+    from gplus_lib.validator import validate_parameters
+    log_debug("Imported validator")
+    from gplus_lib.preview import create_preview_layer
+    log_debug("Imported preview")
+except ImportError as e:
+    log_debug(f"Library import error: {e}")
+    pass
+except Exception as e:
+    log_debug(f"Unexpected error during import: {e}")
+
+log_debug("Defining GuillotinePlus class...")
 
 
 class GuillotinePlus(Gimp.PlugIn):
-    """Guillotine-Plus: Efficient image slicing for GIMP 3.0"""
+    def __init__(self):
+        log_debug("GuillotinePlus initialized")
+        super().__init__()
 
-    ## GimpPlugIn virtual methods ##
     def do_query_procedures(self):
-        return ["python-fu-guillotine-plus"]
+        log_debug("Querying procedures")
+        return ["guillotine-plus-plugin"]
 
     def do_set_i18n(self, name):
         return False
 
     def do_create_procedure(self, name):
-        procedure = Gimp.ImageProcedure.new(
-            self,
-            name,
-            Gimp.PDBProcType.PLUGIN,
-            self.run,
-            None
-        )
-        
-        procedure.set_menu_label("Guillotine-Plus")
-        procedure.add_menu_path("<Image>/Filters/Utils/")
-        
-        procedure.set_image_types("*")
-        procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
-        
-        procedure.set_documentation(
-            "Slice image into tiles with dividers",
-            "Efficiently slice images into predefined, evenly sized tiles, with optional discardable divider lines.",
-            name
-        )
-        procedure.set_attribution("Antigravity & Karol", "Antigravity", "2026")
-        
-        # Add parameters
-        procedure.add_int_argument(
-            "tile-width",
-            "Tile Width",
-            "Width of each tile in pixels",
-            1, 10000, 256,
-            GObject.ParamFlags.READWRITE
-        )
-        
-        procedure.add_int_argument(
-            "tile-height",
-            "Tile Height",
-            "Height of each tile in pixels",
-            1, 10000, 256,
-            GObject.ParamFlags.READWRITE
-        )
-        
-        procedure.add_int_argument(
-            "divider-width",
-            "Divider Width",
-            "Width of discardable divider lines between tiles",
-            0, 1000, 0,
-            GObject.ParamFlags.READWRITE
-        )
-
-        return procedure
-
-    def run(self, procedure, run_mode, image, n_drawables, drawables, args, run_data):
-        # Extract arguments
-        tile_width = args.index(0)
-        tile_height = args.index(1)
-        divider_width = args.index(2)
-
-        # Show dialog if interactive mode
-        if run_mode == Gimp.RunMode.INTERACTIVE:
-            GimpUi.init("guillotine-plus")
-            dialog = GimpUi.ProcedureDialog.new(procedure, args, "Guillotine-Plus")
-            dialog.fill(None)
-            if not dialog.run():
-                return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
-            
-            # Re-extract arguments after dialog (may have changed)
-            tile_width = args.index(0)
-            tile_height = args.index(1)
-            divider_width = args.index(2)
-
-        # Get image dimensions
-        image_width = image.get_width()
-        image_height = image.get_height()
-
-        # Validate parameters
-        is_valid, error_msg = validate_parameters(
-            image_width, image_height,
-            tile_width, tile_height, divider_width
-        )
-        
-        if not is_valid:
-            Gimp.message(f"Validation Error: {error_msg}")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
-
-        # Start undo group
-        image.undo_group_start()
-        
+        log_debug(f"Creating procedure: {name}")
         try:
-            # Calculate tile regions
-            tiles, metadata = calculate_tile_regions(
-                image_width, image_height,
-                tile_width, tile_height, divider_width
+            procedure = Gimp.ImageProcedure.new(
+                self,
+                name,
+                Gimp.PDBProcType.PLUGIN,
+                self.run,
+                None
             )
             
-            if not tiles:
-                Gimp.message("No tiles could be created with the specified parameters.")
-                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
-            
-            # Calculate cut lines for preview
-            vertical_lines, horizontal_lines = calculate_cut_lines(
-                image_width, image_height,
-                tile_width, tile_height, divider_width
-            )
-            
-            # Remove existing preview layer if present
-            existing_preview = find_preview_layer(image)
-            if existing_preview:
-                remove_preview_layer(image, existing_preview)
-            
-            # Create and draw preview
-            preview_layer = create_preview_layer(image)
-            if preview_layer:
-                draw_cut_lines(image, preview_layer, vertical_lines, horizontal_lines)
-            
-            # Report results
-            Gimp.message(
-                f"Guillotine-Plus: Found {metadata['total_tiles']} tiles "
-                f"({metadata['cols']} columns × {metadata['rows']} rows). "
-                f"Preview layer created."
-            )
-            
-        except Exception as e:
-            Gimp.message(f"Error: {str(e)}")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
-        
-        finally:
-            image.undo_group_end()
-            Gimp.displays_flush()
-        
-        return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
+            log_debug(f"Procedure type: {type(procedure)}")
+            log_debug(f"Available attributes: {dir(procedure)}")
 
+            procedure.set_menu_label("Guillotine-Plus")
+            procedure.set_documentation(
+                "Slice image into tiles with dividers", 
+                "Efficiently slice images into predefined tiles with optional divider lines.", 
+                name
+            )
+            procedure.set_attribution("Antigravity & Karol", "Antigravity", "2026")
+            procedure.add_menu_path("<Image>/Filters/Utils/")
+            
+            procedure.set_image_types("*")
+            procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
+            
+            # Add parameters using add_int_argument (reverting to check if it works)
+            log_debug("Adding arguments...")
+            
+            procedure.add_int_argument(
+                "tile-width",
+                "Tile Width",
+                "Width of each tile in pixels",
+                1, 10000, 256,
+                GObject.ParamFlags.READWRITE
+            )
+            
+            procedure.add_int_argument(
+                "tile-height",
+                "Tile Height",
+                "Height of each tile in pixels",
+                1, 10000, 256,
+                GObject.ParamFlags.READWRITE
+            )
+            
+            procedure.add_int_argument(
+                "divider-width",
+                "Divider Width",
+                "Width of discardable divider lines",
+                0, 1000, 0,
+                GObject.ParamFlags.READWRITE
+            )
+            
+            log_debug("Procedure created successfully")
+            return procedure
+        except Exception as e:
+            log_debug(f"Error creating procedure: {str(e)}")
+            # Re-raise to let GIMP know something went wrong
+            raise e
+
+    def run(self, procedure, run_mode, image, drawables, config, data):
+        log_debug(f"Running procedure with mode: {run_mode}")
+        try:
+            # Extract parameters from config using the modern property access
+            tile_width = config.get_property("tile-width")
+            tile_height = config.get_property("tile-height")
+            divider_width = config.get_property("divider-width")
+            
+            log_debug(f"Parameters: w={tile_width}, h={tile_height}, d={divider_width}")
+
+            if run_mode == Gimp.RunMode.INTERACTIVE:
+                GimpUi.init("guillotine-plus")
+                dialog = GimpUi.ProcedureDialog.new(procedure, config, "Guillotine-Plus")
+                dialog.fill(None)
+                
+                if not dialog.run():
+                    dialog.destroy()
+                    return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, None)
+                
+                dialog.destroy()
+                
+                # Re-get values as they are updated by the dialog
+                tile_width = config.get_property("tile-width")
+                tile_height = config.get_property("tile-height")
+                divider_width = config.get_property("divider-width")
+
+            # Core logic execution
+            image_width = image.get_width()
+            image_height = image.get_height()
+            
+            # Validation
+            is_valid, error_msg = validate_parameters(
+                image_width, image_height, 
+                tile_width, tile_height, divider_width
+            )
+            if not is_valid:
+                Gimp.message(f"Guillotine-Plus Error: {error_msg}")
+                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(error_msg))
+
+            image.undo_group_start()
+            try:
+                # 1. Calculate regions and cut lines
+                tiles, metadata = calculate_tile_regions(
+                    image_width, image_height, 
+                    tile_width, tile_height, divider_width
+                )
+                v_lines, h_lines = calculate_cut_lines(
+                    image_width, image_height, 
+                    tile_width, tile_height, divider_width
+                )
+                
+                # 2. Manage preview layer
+                existing = find_preview_layer(image)
+                if existing:
+                    remove_preview_layer(image, existing)
+                
+                preview = create_preview_layer(image)
+                if preview:
+                    draw_cut_lines(image, preview, v_lines, h_lines)
+                
+                Gimp.message(
+                    f"Guillotine-Plus: Preview created for {metadata['total_tiles']} tiles "
+                    f"({metadata['cols']} columns x {metadata['rows']} rows)."
+                )
+                
+            except Exception as e:
+                msg = f"Guillotine-Plus Unexpected Error: {str(e)}"
+                log_debug(msg)
+                Gimp.message(msg)
+                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(msg))
+            finally:
+                image.undo_group_end()
+                Gimp.displays_flush()
+            
+            return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
+        except Exception as e:
+            log_debug(f"Critical error in run loop: {e}")
+            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(str(e)))
 
 if __name__ == "__main__":
-    Gimp.main(GuillotinePlus.__gtype__, sys.argv)
+    log_debug("Starting Gimp.main...")
+    log_debug(f"sys.argv: {sys.argv}")
+    try:
+        Gimp.main(GuillotinePlus.__gtype__, sys.argv)
+        log_debug("Gimp.main returned (unexpected)")
+    except Exception as e:
+        log_debug(f"Error in Gimp.main: {e}")

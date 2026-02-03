@@ -1,75 +1,37 @@
 ---
-description: GIMP 3.0 Python plugin development workflow using GObject Introspection API
+name: gimp_3_0_python_plugin_dev
+description: Expert GIMP 3.0 Python plugin development using GObject Introspection and the modern ProcedureConfig pattern.
 ---
 
-# GIMP 3.0 Plugin Development Workflow
+# GIMP 3.0 Python Plugin Development
 
-This skill provides a comprehensive workflow for developing GIMP 3.0 plugins using **Python 3** and the **GObject Introspection (GI)** API.
+This guide focuses on the modern **Python 3** and **GObject Introspection (GI)** API for GIMP 3.0.
 
 > [!IMPORTANT]
-> GIMP 3.0 uses a completely different API than GIMP 2.10. The old `gimpfu` and `pdb` modules are replaced with GObject Introspection bindings.
+> GIMP 3.0 is a complete departure from GIMP 2.10. It uses Python 3, GTK 3, and GEGL. The old `gimpfu` module is gone.
 
-## Prerequisites
+## 1. Project Architecture
 
-### System Requirements
-- GIMP 3.0+ (AppImage, Flatpak, or native installation)
-- Python 3.x (bundled with GIMP 3.0)
-- GTK 3.0 development libraries
+GIMP 3.0 strictly requires each plugin to live in its own directory. The directory name must match the main script name.
 
-### Verify Installation
-
-```bash
-# For AppImage installation (e.g., in ~/.local/bin/)
-~/.local/bin/GIMP-*.AppImage --version
-
-# Or if added to PATH
-gimp --version
-
-# Should show GIMP 3.0.x
-```
-
----
-
-## 1. Development Environment Setup
-
-### Plugin Directory Locations (GIMP 3.0)
-
-| Operating System | Plugin Path |
-|------------------|-------------|
-| **Linux** | `~/.config/GIMP/3.0/plug-ins/` |
-| **macOS** | `~/Library/Application Support/GIMP/3.0/plug-ins/` |
-| **Windows** | `%APPDATA%\GIMP\3.0\plug-ins\` |
-
-### GIMP 3.0 Plugin Structure (REQUIRED)
-
-> [!WARNING]
-> GIMP 3.0 requires each plugin to be in its own subdirectory, with the main Python file matching the folder name exactly.
-
-```
+```text
 ~/.config/GIMP/3.0/plug-ins/
-├── my-plugin/
-│   └── my-plugin.py          # MUST match folder name
-├── another-plugin/
-│   └── another-plugin.py
-└── guillotine-plus/
-    └── guillotine-plus.py
+└── my-cool-plugin/                 # Directory name
+    ├── my-cool-plugin.py           # Script name MUST match directory
+    └── lib/                        # Sub-packages (optional)
+        └── helper.py
 ```
 
-### Initial Setup Commands
-
-```bash
-# Linux - Create plugin directory
-mkdir -p ~/.config/GIMP/3.0/plug-ins/your-plugin-name
-
-# Create symbolic link for development
-ln -s /path/to/your-project/your-plugin-name ~/.config/GIMP/3.0/plug-ins/your-plugin-name
-```
+### Folder Locations
+- **Linux**: `~/.config/GIMP/3.0/plug-ins/`
+- **Windows**: `%APPDATA%\GIMP\3.0\plug-ins\`
+- **macOS**: `~/Library/Application Support/GIMP/3.0/plug-ins/`
 
 ---
 
-## 2. Plugin Templates
+## 2. The Modern Python Plugin Template
 
-### Minimal Plugin Template (GIMP 3.0)
+The following template uses the **ProcedureConfig** pattern, which is the most stable and recommended approach for GIMP 3.0.
 
 ```python
 #!/usr/bin/env python3
@@ -82,296 +44,161 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
 
 class MyPlugin(Gimp.PlugIn):
-    """My GIMP 3.0 Plugin"""
-
     ## GimpPlugIn virtual methods ##
     def do_query_procedures(self):
-        """Return list of procedure names this plugin provides"""
-        return ["my-plugin-procedure"]
+        # Return unique internal PDB name(s)
+        return ["python-fu-my-plugin"]
 
     def do_set_i18n(self, name):
-        """Internationalization - return False to disable"""
         return False
 
     def do_create_procedure(self, name):
-        """Create and configure the procedure"""
         procedure = Gimp.ImageProcedure.new(
             self,
             name,
             Gimp.PDBProcType.PLUGIN,
-            self.run,
+            self.run,  # The callback function
             None
         )
         
-        # Menu configuration
-        procedure.set_menu_label("My Plugin")
+        procedure.set_menu_label("My Cool Plugin")
         procedure.add_menu_path("<Image>/Filters/MyCategory/")
+        procedure.set_documentation("Short blurb", "Detailed help", name)
+        procedure.set_attribution("Author Name", "Copyright", "2026")
         
-        # Documentation
-        procedure.set_documentation(
-            "Short description",
-            "Detailed help text",
-            name
-        )
-        procedure.set_attribution("Author", "Copyright", "2026")
+        # Image types plugin works on (* for all, RGB, GRAY, etc.)
+        procedure.set_image_types("*")
         
-        # Add parameters (creates UI automatically)
+        # Sensitivity: when is the menu item enabled?
+        procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
+        
+        # Define arguments (Creates properties in GimpProcedureConfig)
         procedure.add_int_argument(
-            "tile-width",
-            "Tile Width",
-            "Width of each tile in pixels",
-            1, 10000, 100,  # min, max, default
+            "my-integer",
+            "Integer Label",
+            "Description of this param",
+            1, 1000, 100,  # Min, Max, Default
             GObject.ParamFlags.READWRITE
         )
         
         return procedure
 
-    def run(self, procedure, run_mode, image, n_drawables, drawables, args, run_data):
-        """Main plugin execution"""
-        
-        # Get parameter values
-        tile_width = args.index(0)
-        
-        # Show dialog if interactive mode
+    # Standard GIMP 3.0 run signature for ImageProcedure
+    def run(self, procedure, run_mode, image, drawables, config, data):
+        # 1. Parameter Access (ProcedureConfig pattern)
+        my_int = config.get_property("my-integer")
+
+        # 2. Interactive Mode Handling
         if run_mode == Gimp.RunMode.INTERACTIVE:
-            GimpUi.init("my-plugin")
-            dialog = GimpUi.ProcedureDialog.new(procedure, args, "My Plugin")
-            dialog.fill(None)  # Auto-generate UI from parameters
+            GimpUi.init("my-plugin-id")
+            dialog = GimpUi.ProcedureDialog.new(procedure, config, "My Plugin")
+            dialog.fill(None)  # Auto-generate UI for all properties
             if not dialog.run():
                 return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
-        
-        # Start undo group
-        image.undo_group_start()
-        
-        try:
-            # Your plugin logic here
-            Gimp.message(f"Processing with tile width: {tile_width}")
             
+            # Values in 'config' are automatically updated after dialog.run()
+            my_int = config.get_property("my-integer")
+
+        # 3. Core Processing
+        image.undo_group_start()
+        try:
+            # logic here...
+            Gimp.message(f"Running with value: {my_int}")
         except Exception as e:
-            Gimp.message(f"Error: {str(e)}")
-            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
-        
+            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(str(e)))
         finally:
             image.undo_group_end()
             Gimp.displays_flush()
         
         return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
 
-Gimp.main(MyPlugin.__gtype__, __file__)
+if __name__ == "__main__":
+    Gimp.main(MyPlugin.__gtype__, sys.argv)
 ```
-
-### Parameter Types Reference (GIMP 3.0)
-
-| Method | Description | Signature |
-|--------|-------------|-----------|
-| `add_int_argument()` | Integer input | `(name, nick, blurb, min, max, default, flags)` |
-| `add_double_argument()` | Float input | `(name, nick, blurb, min, max, default, flags)` |
-| `add_string_argument()` | Text input | `(name, nick, blurb, default, flags)` |
-| `add_boolean_argument()` | Checkbox | `(name, nick, blurb, default, flags)` |
-| `add_color_argument()` | Color picker | `(name, nick, blurb, has_alpha, default, flags)` |
-| `add_file_argument()` | File picker | `(name, nick, blurb, flags)` |
-| `add_choice_argument()` | Dropdown | `(name, nick, blurb, choice, default, flags)` |
 
 ---
 
-## 3. Common API Patterns (GIMP 3.0)
+## 3. Core API Reference (GIMP 3.0)
 
-### Image Operations
+### Argument Types
+| Method | UI Element |
+|--------|------------|
+| `add_int_argument` | Spin button |
+| `add_double_argument` | Spin button |
+| `add_boolean_argument` | Checkbox |
+| `add_string_argument` | Text box |
+| `add_choice_argument` | Dropdown |
+| `add_color_argument` | Color picker |
+| `add_file_argument` | File / Folder picker |
+
+### Common Image/Layer Methods
+GIMP 3.0 uses GETTERS. Direct property access (like `.width`) usually fails.
 
 ```python
-# Get image dimensions (use getter methods, not properties!)
 width = image.get_width()
 height = image.get_height()
-
-# Get active layer
-layer = image.get_active_layer()
-
-# Get all layers
-layers = image.get_layers()
-
-# Duplicate image
-new_image = image.duplicate()
-
-# Display new image
-Gimp.Display.new(new_image)
-
-# Crop image
-image.crop(new_width, new_height, offset_x, offset_y)
+layers = image.get_layers()  # Returns List[Gimp.Layer]
+layer = Gimp.Layer.new(image, "Name", w, h, Gimp.ImageType.RGBA_IMAGE, 100.0, Gimp.LayerMode.NORMAL)
+image.insert_layer(layer, parent=None, position=0)
 ```
 
-### Layer Operations
+---
+
+## 4. Drawing & Manipulation
+
+Drawing with brushes (`Gimp.pencil`, `Gimp.paint_brush`) can be fragile if the brush isn't found. A robust alternative is using Selections and Fills.
 
 ```python
-# Create new layer
-layer = Gimp.Layer.new(
-    image,                    # Parent image
-    "Layer Name",             # Name
-    width,                    # Width
-    height,                   # Height
-    Gimp.ImageType.RGBA_IMAGE,  # Type
-    100.0,                    # Opacity (0-100)
-    Gimp.LayerMode.NORMAL     # Blend mode
-)
+# Save context
+Gimp.context_push()
 
-# Add layer to image
-image.insert_layer(layer, None, 0)  # parent, position
+# Set Color (GEGL based)
+from gi.repository import Gegl
+color = Gegl.Color.new("red")
+Gimp.context_set_foreground(color)
 
-# Remove layer
-image.remove_layer(layer)
+# Draw a 2px vertical line
+image.select_rectangle(Gimp.ChannelOps.REPLACE, x, 0, 2, height)
+layer.edit_fill(Gimp.FillType.FOREGROUND)
 
-# Duplicate layer
-new_layer = layer.copy()
-image.insert_layer(new_layer, None, 0)
+# Cleanup
+image.select_none()
+Gimp.context_pop()
 ```
 
-### Selection Operations
+---
+
+## 5. Working with the PDB (Procedure Database)
+
+To call other GIMP functions or plugins:
 
 ```python
-# Select rectangle
-image.select_rectangle(
-    Gimp.ChannelOps.REPLACE,  # Operation
-    x, y,                      # Position
-    width, height              # Size
-)
-
-# Select all
-Gimp.Selection.all(image)
-
-# Select none
-Gimp.Selection.none(image)
-
-# Invert selection
-Gimp.Selection.invert(image)
-```
-
-### File Operations
-
-```python
-# Get PDB for file operations
 pdb = Gimp.get_pdb()
-
-# Export as PNG
-file = Gio.File.new_for_path("/path/to/output.png")
-pdb.run_procedure("file-png-export", [
-    GObject.Value(Gimp.RunMode, Gimp.RunMode.NONINTERACTIVE),
-    GObject.Value(Gimp.Image, image),
-    GObject.Value(GObject.TYPE_INT, 1),  # num drawables
-    GObject.Value(Gimp.ObjectArray, [layer]),  # drawables
-    GObject.Value(Gio.File, file),
-])
-```
-
-### Progress and Messaging
-
-```python
-# Show message to user
-Gimp.message("Operation complete!")
-
-# Initialize progress bar
-Gimp.progress_init("Processing...")
-
-# Update progress (0.0 to 1.0)
-Gimp.progress_update(0.5)
-
-# Set progress text
-Gimp.progress_set_text("Step 2 of 5...")
-
-# End progress
-Gimp.progress_end()
+procedure = pdb.lookup_procedure("gimp-image-scale")
+config = procedure.create_config()
+config.set_property("image", image)
+config.set_property("new-width", 800)
+config.set_property("new-height", 600)
+result = procedure.run(config)
 ```
 
 ---
 
-## 4. Key Differences from GIMP 2.10
+## 6. Debugging Workflow
 
-| GIMP 2.10 (Python-Fu) | GIMP 3.0 (GI API) |
-|-----------------------|-------------------|
-| `from gimpfu import *` | `from gi.repository import Gimp, GimpUi` |
-| `gimp.pdb.function()` | `Gimp.get_pdb().lookup_procedure()` |
-| `image.width` | `image.get_width()` |
-| `image.active_layer` | `image.get_active_layer()` |
-| `pdb.gimp_message()` | `Gimp.message()` |
-| `gimpfu.register()` | Class inheriting `Gimp.PlugIn` |
-| Single plugin file | Plugin in named subdirectory |
+1. **Clear Cache**: If you change the plugin signature, delete `~/.config/GIMP/3.0/pluginrc` to force GIMP to re-register the plugin.
+2. **Terminal Output**: Start GIMP from a terminal to see `print()` statements and crash logs.
+3. **Log File**: Use a log file for persistent debugging.
+   ```python
+   def log(msg):
+       with open("/tmp/gimp.log", "a") as f:
+           f.write(f"{msg}\n")
+   ```
+4. **Error Console**: Use `Windows -> Dockable Dialogs -> Error Console`.
+5. **Syntax Check**: Run `python3 -m py_compile my-plugin.py` before restarting GIMP.
 
----
+## 7. Troubleshooting Tips
 
-## 5. Testing Workflow
-
-### Quick Test Cycle
-
-1. **Edit plugin code** in your project directory
-2. **Restart GIMP** (plugins are loaded at startup)
-3. **Test via menu** path defined in `add_menu_path()`
-4. **Check error console**: `Windows → Dockable Dialogs → Error Console`
-
-### Debug Output
-
-```python
-# Print to terminal (when GIMP started from terminal)
-print(f"Debug: variable = {variable}")
-
-# Show in GIMP (visible to user)
-Gimp.message(f"Debug: {variable}")
-
-# Write to log file
-with open("/tmp/gimp_plugin_debug.log", "a") as f:
-    f.write(f"Debug: {variable}\n")
-```
-
-### Running GIMP from Terminal (for debug output)
-
-```bash
-# For AppImage
-~/.local/bin/GIMP-*.AppImage 2>&1 | tee /tmp/gimp_output.log
-
-# Standard installation
-gimp --verbose 2>&1 | tee /tmp/gimp_output.log
-```
-
----
-
-## 6. Troubleshooting
-
-### Plugin Not Appearing in Menu
-
-1. **Check folder structure**: Plugin must be in `pluginname/pluginname.py`
-2. **Check file is executable**: `chmod +x plugin.py`
-3. **Verify shebang line**: `#!/usr/bin/env python3`
-4. **Check for syntax errors**: `python3 -m py_compile plugin.py`
-5. **Check GIMP error console** for registration errors
-6. **Verify GI imports**: Ensure `gi.require_version()` calls are correct
-
-### Common Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `gi.repository not found` | GI not installed | Install `python3-gi` package |
-| `Gimp.PlugIn` not subclassed | Wrong class structure | Inherit from `Gimp.PlugIn` |
-| `AttributeError: 'Image' has no attribute 'width'` | Using old property syntax | Use `image.get_width()` |
-| Plugin grayed out | Wrong image type | Check menu path and image requirements |
-
----
-
-## 7. Project Workflow Checklist
-
-- [ ] Create project directory with version control
-- [ ] Create plugin subdirectory matching plugin name
-- [ ] Set up symbolic link to GIMP 3.0 plugins folder
-- [ ] Create minimal plugin template
-- [ ] Verify plugin loads in GIMP 3.0
-- [ ] Implement core functionality using GI API
-- [ ] Add progress feedback for long operations
-- [ ] Implement error handling with proper return values
-- [ ] Test edge cases
-- [ ] Write README with installation instructions
-- [ ] Package for distribution
-
----
-
-## Resources
-
-- [GIMP 3.0 Python Plugin Tutorial](https://www.gimp.org/docs/)
-- [GIMP C-API Documentation](https://developer.gimp.org/api/3.0/) (Python mirrors this)
-- [GObject Introspection Docs](https://gi.readthedocs.io/)
-- GIMP Procedure Browser: `Help → Procedure Browser` in GIMP
+- **Plugin Missing?** Check names (folder == filename.py), check execution bit (`chmod +x`), check shebang (`#!/usr/bin/env python3`).
+- **Signature Errors?** Ensure your `run` method matches the number of objects GIMP passes. Use `run(self, *args)` and log `len(args)` if unsure.
+- **Import Errors?** Use absolute imports for internal libraries by adding the plugin directory to `sys.path`.

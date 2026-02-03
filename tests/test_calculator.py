@@ -7,11 +7,12 @@ Unit tests for Guillotine-Plus calculator module.
 import sys
 import os
 
-# Add project root to path
+# Add project root and plugin dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "guillotine_plus"))
 
-from lib.calculator import calculate_tile_regions, calculate_cut_lines
-from lib.validator import validate_parameters
+from gplus_lib.calculator import calculate_tile_regions, calculate_cut_lines
+from gplus_lib.validator import validate_parameters
 
 
 class TestCalculateTileRegions:
