@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Guillotine-Plus: Efficient image slicing for GIMP 3.0
+
+A GIMP plugin to slice images into predefined, evenly sized tiles,
+with optional discardable divider lines.
+"""
 
 import gi
 gi.require_version('Gimp', '3.0')
 gi.require_version('GimpUi', '3.0')
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
-import os
 import sys
+import os
 
-import gi
-gi.require_version('Gimp', '3.0')
-gi.require_version('GimpUi', '3.0')
-gi.require_version('Gtk', '3.0')
-from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk
-import os
-import sys
+# Add lib directory to path for imports
+plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if plugin_dir not in sys.path:
+    sys.path.insert(0, plugin_dir)
+
+from lib.calculator import calculate_tile_regions, calculate_cut_lines
+from lib.validator import validate_parameters
+from lib.preview import create_preview_layer, draw_cut_lines, remove_preview_layer, find_preview_layer
+
 
 class GuillotinePlus(Gimp.PlugIn):
     """Guillotine-Plus: Efficient image slicing for GIMP 3.0"""
@@ -69,7 +77,7 @@ class GuillotinePlus(Gimp.PlugIn):
         procedure.add_int_argument(
             "divider-width",
             "Divider Width",
-            "Width of discardable divider lines",
+            "Width of discardable divider lines between tiles",
             0, 1000, 0,
             GObject.ParamFlags.READWRITE
         )
@@ -82,19 +90,69 @@ class GuillotinePlus(Gimp.PlugIn):
         tile_height = args.index(1)
         divider_width = args.index(2)
 
+        # Show dialog if interactive mode
         if run_mode == Gimp.RunMode.INTERACTIVE:
             GimpUi.init("guillotine-plus")
             dialog = GimpUi.ProcedureDialog.new(procedure, args, "Guillotine-Plus")
             dialog.fill(None)
             if not dialog.run():
                 return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, GLib.Error())
+            
+            # Re-extract arguments after dialog (may have changed)
+            tile_width = args.index(0)
+            tile_height = args.index(1)
+            divider_width = args.index(2)
+
+        # Get image dimensions
+        image_width = image.get_width()
+        image_height = image.get_height()
+
+        # Validate parameters
+        is_valid, error_msg = validate_parameters(
+            image_width, image_height,
+            tile_width, tile_height, divider_width
+        )
+        
+        if not is_valid:
+            Gimp.message(f"Validation Error: {error_msg}")
+            return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
 
         # Start undo group
         image.undo_group_start()
         
         try:
-            # For now, just show a message confirming the parameters
-            Gimp.message(f"Guillotine-Plus: Ready to cut {tile_width}x{tile_height} tiles with {divider_width}px dividers.")
+            # Calculate tile regions
+            tiles, metadata = calculate_tile_regions(
+                image_width, image_height,
+                tile_width, tile_height, divider_width
+            )
+            
+            if not tiles:
+                Gimp.message("No tiles could be created with the specified parameters.")
+                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error())
+            
+            # Calculate cut lines for preview
+            vertical_lines, horizontal_lines = calculate_cut_lines(
+                image_width, image_height,
+                tile_width, tile_height, divider_width
+            )
+            
+            # Remove existing preview layer if present
+            existing_preview = find_preview_layer(image)
+            if existing_preview:
+                remove_preview_layer(image, existing_preview)
+            
+            # Create and draw preview
+            preview_layer = create_preview_layer(image)
+            if preview_layer:
+                draw_cut_lines(image, preview_layer, vertical_lines, horizontal_lines)
+            
+            # Report results
+            Gimp.message(
+                f"Guillotine-Plus: Found {metadata['total_tiles']} tiles "
+                f"({metadata['cols']} columns × {metadata['rows']} rows). "
+                f"Preview layer created."
+            )
             
         except Exception as e:
             Gimp.message(f"Error: {str(e)}")
@@ -105,6 +163,7 @@ class GuillotinePlus(Gimp.PlugIn):
             Gimp.displays_flush()
         
         return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, GLib.Error())
+
 
 if __name__ == "__main__":
     Gimp.main(GuillotinePlus.__gtype__, sys.argv)

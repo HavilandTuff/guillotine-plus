@@ -258,14 +258,14 @@ test_output/
 ## Phase 1 Checklist Summary
 
 - [ ] Requirements & edge cases documented in `DECISIONS.md`
-- [ ] GIMP 3.0 AppImage verified working (`~/.local/bin/`)
-- [ ] Plugin directory created with correct GIMP 3.0 structure
-- [ ] Hello World test plugin created and tested (Python 3 + GI API)
-- [ ] Architecture design documented for GIMP 3.0
-- [ ] Git repository initialized with proper `.gitignore`
-- [ ] `README.md` with project overview created
-- [ ] Initial directory structure created
-- [ ] First commit made
+- [x] GIMP 3.0 AppImage verified working (`~/.local/bin/`)
+- [x] Plugin directory created with correct GIMP 3.0 structure
+- [x] Hello World test plugin created and tested (Python 3 + GI API)
+- [x] Architecture design documented for GIMP 3.0
+- [x] Git repository initialized with proper `.gitignore`
+- [x] `README.md` with project overview created
+- [x] Initial directory structure created
+- [x] First commit made
 
 ---
 
