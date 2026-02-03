@@ -9,7 +9,7 @@ import os
 import time
 
 # Debug logging setup - MOVED TO TOP
-ENABLE_DEBUG_LOGGING = True
+ENABLE_DEBUG_LOGGING = False
 LOG_FILE = "/tmp/guillotine_plus_debug.log"
 
 def log_debug(message):
@@ -48,11 +48,11 @@ log_debug(f"Plugin directory: {plugin_dir}")
 log_debug("Attempting to import gplus_lib...")
 
 try:
-    from gplus_lib.calculator import calculate_tile_regions
+    from gplus_lib.calculator import calculate_tile_regions, calculate_cut_lines
     log_debug("Imported calculator")
     from gplus_lib.validator import validate_parameters
     log_debug("Imported validator")
-    from gplus_lib.preview import create_preview_layer
+    from gplus_lib.preview import create_preview_layer, draw_cut_lines, remove_preview_layer, find_preview_layer
     log_debug("Imported preview")
 except ImportError as e:
     log_debug(f"Library import error: {e}")
