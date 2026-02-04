@@ -56,6 +56,8 @@ try:
     log_debug("Imported preview")
     from gplus_lib.slicer import slice_image, check_for_overwrites
     log_debug("Imported slicer")
+    from gplus_lib.guide_manager import get_image_guides, calculate_guide_regions
+    log_debug("Imported guide manager")
 except ImportError as e:
     log_debug(f"Library import error: {e}")
     pass
@@ -129,6 +131,28 @@ class GuillotinePlus(Gimp.PlugIn):
                 GObject.ParamFlags.READWRITE
             )
 
+            # Slicing Method
+            method_choice = Gimp.Choice.new()
+            method_choice.add("grid", 0, "Fixed Grid", "")
+            method_choice.add("guides", 1, "Use Guides", "")
+            procedure.add_choice_argument(
+                "slicing-method",
+                "Slicing Method",
+                "Choose between fixed grid or existing guides",
+                method_choice,
+                "grid", 
+                GObject.ParamFlags.READWRITE
+            )
+
+            # Minimum Tile Size (for guides)
+            procedure.add_int_argument(
+                "min-tile-size",
+                "Minimum Tile Size",
+                "Ignore tiles smaller than this (in pixels, for Guide mode)",
+                0, 10000, 0,
+                GObject.ParamFlags.READWRITE
+            )
+
             # Output directory
             procedure.add_file_argument(
                 "output-directory",
@@ -194,8 +218,10 @@ class GuillotinePlus(Gimp.PlugIn):
             prefix = config.get_property("filename-prefix")
             format_ext = config.get_property("output-format")
             execute_mode = config.get_property("execute-mode")
+            slicing_method = config.get_property("slicing-method")
+            min_tile_size = config.get_property("min-tile-size")
             
-            log_debug(f"Parameters: w={tile_width}, h={tile_height}, d={divider_width}, mode={execute_mode}")
+            log_debug(f"Parameters: method={slicing_method}, w={tile_width}, h={tile_height}, mode={execute_mode}")
 
             if run_mode == Gimp.RunMode.INTERACTIVE:
                 GimpUi.init("guillotine-plus")
@@ -216,25 +242,42 @@ class GuillotinePlus(Gimp.PlugIn):
                 prefix = config.get_property("filename-prefix")
                 format_ext = config.get_property("output-format")
                 execute_mode = config.get_property("execute-mode")
+                slicing_method = config.get_property("slicing-method")
+                min_tile_size = config.get_property("min-tile-size")
 
             # Core logic execution
             image_width = image.get_width()
             image_height = image.get_height()
             
-            # Validation
-            is_valid, error_msg = validate_parameters(
-                image_width, image_height, 
-                tile_width, tile_height, divider_width
-            )
-            if not is_valid:
-                Gimp.message(f"Guillotine-Plus Error: {error_msg}")
-                return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(error_msg))
-
             # 1. Calculate regions
-            tiles, metadata = calculate_tile_regions(
-                image_width, image_height, 
-                tile_width, tile_height, divider_width
-            )
+            if slicing_method == "guides":
+                log_debug("Using Guide-based slicing method")
+                v_guides, h_guides = get_image_guides(image)
+                
+                if not v_guides and not h_guides:
+                    Gimp.message("Guillotine-Plus Warning: No guides found! Please add guides or switch to Grid mode.")
+                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error("No guides found"))
+                    
+                tiles, metadata = calculate_guide_regions(
+                    image_width, image_height,
+                    v_guides, h_guides,
+                    min_size=min_tile_size
+                )
+            else:
+                # Default: Grid mode
+                # Validation (only needed for grid mode)
+                is_valid, error_msg = validate_parameters(
+                    image_width, image_height, 
+                    tile_width, tile_height, divider_width
+                )
+                if not is_valid:
+                    Gimp.message(f"Guillotine-Plus Error: {error_msg}")
+                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(error_msg))
+
+                tiles, metadata = calculate_tile_regions(
+                    image_width, image_height, 
+                    tile_width, tile_height, divider_width
+                )
 
             if execute_mode == "preview":
                 # Preview logic
