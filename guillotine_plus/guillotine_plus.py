@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Guillotine-Plus: GIMP 3.0 image slicing plugin
-# Copyright (C) 2024 Karol
+# Copyright (C) 2026 HavilandTuff
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
