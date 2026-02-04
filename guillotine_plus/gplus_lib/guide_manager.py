@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+#
+# Guillotine-Plus: GIMP 3.0 image slicing plugin
+# Copyright (C) 2024 Karol
+# Licensed under the GNU General Public License v3.0
+#
 """
 Guide management and region calculation for Guillotine-Plus.
 """
