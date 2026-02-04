@@ -38,15 +38,13 @@ def get_image_guides(image) -> Tuple[List[int], List[int]]:
     h_guides = []
     
     try:
-        # PDB Fallbacks for properties not exposed directly in GIMP 3 Python
         pdb = Gimp.get_pdb()
-        
         guide = image.find_next_guide(0)
+        
         while guide != 0:
             orientation = -1
             position = -1
             
-            # Get Orientation
             try:
                 orientation = image.get_guide_orientation(guide)
             except:
@@ -57,7 +55,6 @@ def get_image_guides(image) -> Tuple[List[int], List[int]]:
                 if res and len(res) > 1:
                     orientation = res[1]
             
-            # Get Position
             try:
                 position = image.get_guide_position(guide)
             except:
@@ -69,21 +66,10 @@ def get_image_guides(image) -> Tuple[List[int], List[int]]:
                     position = res[1]
             
             if position >= 0:
-                # Gimp.OrientationType.VERTICAL is 0? Let's check Gimp.OrientationType
-                # Enum: HORIZONTAL (0), VERTICAL (1), UNKNOWN (2)
-                # Actually usually in GIMP: ORIENTATION-HORIZONTAL=0, ORIENTATION-VERTICAL=1
-                
-                if orientation == Gimp.OrientationType.VERTICAL: 
+                if orientation == Gimp.OrientationType.VERTICAL or orientation == 1: 
                     v_guides.append(position)
-                elif orientation == Gimp.OrientationType.HORIZONTAL:
+                elif orientation == Gimp.OrientationType.HORIZONTAL or orientation == 0:
                     h_guides.append(position)
-                else:
-                    # If we can't determine, try to infer or skip?
-                    # Fallback check against int values if enum fails matching
-                    if orientation == 1:
-                        v_guides.append(position)
-                    elif orientation == 0:
-                        h_guides.append(position)
             
             guide = image.find_next_guide(guide)
             

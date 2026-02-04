@@ -23,81 +23,43 @@ Guillotine-Plus: Efficient image slicing for GIMP 3.0
 
 import sys
 import os
-import time
 
-# Debug logging setup - MOVED TO TOP
-ENABLE_DEBUG_LOGGING = False
-LOG_FILE = "/tmp/guillotine_plus_debug.log"
-
-def log_debug(message):
-    if ENABLE_DEBUG_LOGGING:
-        try:
-            with open(LOG_FILE, "a") as f:
-                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"[{timestamp}] {message}\n")
-        except Exception:
-            pass 
-
-log_debug("Guillotine-Plus script starting...")
 
 try:
     import gi
-    log_debug("Imported gi")
     gi.require_version('Gimp', '3.0')
-    log_debug("Required Gimp 3.0")
     gi.require_version('GimpUi', '3.0')
-    log_debug("Required GimpUi 3.0")
     gi.require_version('Gegl', '0.4')
-    log_debug("Required Gegl 0.4")
     from gi.repository import Gimp, GimpUi, GObject, GLib, Gtk, Gegl
-    log_debug("Imported GObject/Gimp repositories")
-except Exception as e:
-    log_debug(f"CRITICAL IMPORT ERROR: {e}")
-    # We continue, but it will likely fail later if these are missing.
-    # However, for debugging, knowing WHICH one failed is key.
+except Exception:
+    pass
 
 # Set up gplus_lib import path
 plugin_dir = os.path.dirname(os.path.abspath(__file__))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-log_debug(f"Plugin directory: {plugin_dir}")
-log_debug("Attempting to import gplus_lib...")
 
 try:
     from gplus_lib.calculator import calculate_tile_regions, calculate_cut_lines
-    log_debug("Imported calculator")
     from gplus_lib.validator import validate_parameters
-    log_debug("Imported validator")
     from gplus_lib.preview import create_preview_layer, draw_cut_lines, remove_preview_layer, find_preview_layer
-    log_debug("Imported preview")
     from gplus_lib.slicer import slice_image, check_for_overwrites
-    log_debug("Imported slicer")
     from gplus_lib.guide_manager import get_image_guides, calculate_guide_regions
-    log_debug("Imported guide manager")
 except ImportError as e:
-    log_debug(f"Library import error: {e}")
     pass
-except Exception as e:
-    log_debug(f"Unexpected error during import: {e}")
-
-log_debug("Defining GuillotinePlus class...")
-
 
 class GuillotinePlus(Gimp.PlugIn):
     def __init__(self):
-        log_debug("GuillotinePlus initialized")
         super().__init__()
 
     def do_query_procedures(self):
-        log_debug("Querying procedures")
         return ["guillotine-plus-plugin"]
 
     def do_set_i18n(self, name):
         return False
 
     def do_create_procedure(self, name):
-        log_debug(f"Creating procedure: {name}")
         try:
             procedure = Gimp.ImageProcedure.new(
                 self,
@@ -106,8 +68,6 @@ class GuillotinePlus(Gimp.PlugIn):
                 self.run,
                 None
             )
-            
-            log_debug(f"Procedure type: {type(procedure)}")
 
             procedure.set_menu_label("Guillotine-Plus")
             procedure.set_documentation(
@@ -121,8 +81,6 @@ class GuillotinePlus(Gimp.PlugIn):
             procedure.set_image_types("*")
             procedure.set_sensitivity_mask(Gimp.ProcedureSensitivityMask.DRAWABLE)
             
-            # Add parameters using add_int_argument (reverting to check if it works)
-            log_debug("Adding arguments...")
             
             procedure.add_int_argument(
                 "tile-width",
@@ -217,17 +175,14 @@ class GuillotinePlus(Gimp.PlugIn):
                 GObject.ParamFlags.READWRITE
             )
             
-            log_debug("Procedure created successfully")
             return procedure
         except Exception as e:
-            log_debug(f"Error creating procedure: {str(e)}")
             # Re-raise to let GIMP know something went wrong
             raise e
 
     def run(self, procedure, run_mode, image, drawables, config, data):
-        log_debug(f"Running procedure with mode: {run_mode}")
         try:
-            # Extract parameters from config using the modern property access
+            # Extract parameters from config
             tile_width = config.get_property("tile-width")
             tile_height = config.get_property("tile-height")
             divider_width = config.get_property("divider-width")
@@ -238,7 +193,7 @@ class GuillotinePlus(Gimp.PlugIn):
             slicing_method = config.get_property("slicing-method")
             min_tile_size = config.get_property("min-tile-size")
             
-            log_debug(f"Parameters: method={slicing_method}, w={tile_width}, h={tile_height}, mode={execute_mode}")
+            
 
             if run_mode == Gimp.RunMode.INTERACTIVE:
                 GimpUi.init("guillotine-plus")
@@ -251,7 +206,7 @@ class GuillotinePlus(Gimp.PlugIn):
                 
                 dialog.destroy()
                 
-                # Re-get values as they are updated by the dialog
+                # Update values from dialog
                 tile_width = config.get_property("tile-width")
                 tile_height = config.get_property("tile-height")
                 divider_width = config.get_property("divider-width")
@@ -266,9 +221,8 @@ class GuillotinePlus(Gimp.PlugIn):
             image_width = image.get_width()
             image_height = image.get_height()
             
-            # 1. Calculate regions
+            # Calculation
             if slicing_method == "guides":
-                log_debug("Using Guide-based slicing method")
                 v_guides, h_guides = get_image_guides(image)
                 
                 if not v_guides and not h_guides:
@@ -305,7 +259,6 @@ class GuillotinePlus(Gimp.PlugIn):
                 
                 image.undo_group_start()
                 try:
-                    # 2. Manage preview layer
                     existing = find_preview_layer(image)
                     if existing:
                         remove_preview_layer(image, existing)
@@ -320,7 +273,6 @@ class GuillotinePlus(Gimp.PlugIn):
                     )
                 except Exception as e:
                     msg = f"Guillotine-Plus Preview Error: {str(e)}"
-                    log_debug(msg)
                     Gimp.message(msg)
                 finally:
                     image.undo_group_end()
@@ -338,30 +290,16 @@ class GuillotinePlus(Gimp.PlugIn):
                         tiles, 
                         output_dir_file, 
                         prefix, 
-                        format_ext, 
-                        log_debug
+                        format_ext
                     )
                     Gimp.message(f"Guillotine-Plus: Successfully saved {count} tiles to {output_dir_file.get_path()}")
                 except Exception as e:
-                    msg = f"Guillotine-Plus Slicing Error: {str(e)}"
-                    log_debug(msg)
-                    import traceback
-                    log_debug(traceback.format_exc())
-                    Gimp.message(msg)
-                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(msg))
+                    Gimp.message(f"Guillotine-Plus Slicing Error: {str(e)}")
+                    return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(str(e)))
 
             return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
         except Exception as e:
-            log_debug(f"Critical error in run loop: {e}")
-            import traceback
-            log_debug(traceback.format_exc())
             return procedure.new_return_values(Gimp.PDBStatusType.EXECUTION_ERROR, GLib.Error(str(e)))
 
 if __name__ == "__main__":
-    log_debug("Starting Gimp.main...")
-    log_debug(f"sys.argv: {sys.argv}")
-    try:
-        Gimp.main(GuillotinePlus.__gtype__, sys.argv)
-        log_debug("Gimp.main returned (unexpected)")
-    except Exception as e:
-        log_debug(f"Error in Gimp.main: {e}")
+    Gimp.main(GuillotinePlus.__gtype__, sys.argv)

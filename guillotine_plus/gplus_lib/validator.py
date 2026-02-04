@@ -60,8 +60,6 @@ def validate_parameters(
         return False, f"Tile height ({tile_height}) exceeds image height ({image_height})"
     
     # Check at least one tile can be created
-    # After first tile, we need at least divider + another tile to matter
-    # But single tile is valid
     if tile_width + divider_width > image_width and tile_width < image_width:
         return False, "Tile width plus divider exceeds image width - no complete tiles possible"
     

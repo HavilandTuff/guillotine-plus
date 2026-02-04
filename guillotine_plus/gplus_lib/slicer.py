@@ -52,16 +52,9 @@ def slice_image(
         if log_func: log_func(f"Output directory does not exist: {output_path}")
         return 0, []
 
-    # 1. Prepare image: Merge visible layers as requested by user
-    # We work on a duplicate to avoid destructive changes to original
+    # Merge visible layers to work with a single flat representation
     temp_image = image.duplicate()
     try:
-        # Flatten visible layers
-        # In GIMP 3.0, we can use item_merge_visible_layers or flatten
-        # Since user asked to "flatten/merge visible layers first", flatten is easiest if they want one result per tile.
-        # However, if there are transparent areas they want to keep, merge_visible might be better. 
-        # "Flatten" usually means adding a background.
-        # Let's use merge_visible_layers.
         merged_layer = temp_image.merge_visible_layers(Gimp.MergeType.CLIP_TO_IMAGE)
         
         saved_paths = []
@@ -73,37 +66,30 @@ def slice_image(
             Gimp.progress_set_text(f"Processing tile {idx + 1}/{total}")
             Gimp.progress_update(idx / total)
             
-            # Select the region
+            # Extract region
             temp_image.select_rectangle(Gimp.ChannelOps.REPLACE, x, y, w, h)
             
-            # Copy and paste as new image
             if Gimp.edit_copy([merged_layer]):
-                # In GIMP 3.0, edit_paste_as_new_image is often available via PDB 
-                # or as a wrapper. Let's try the wrapper first, but with a fallback.
                 tile_image = None
                 try:
                     tile_image = Gimp.edit_paste_as_new_image()
                 except:
-                    # Fallback to PDB
+                    # Fallback to PDB for 'paste as new image'
                     try:
                         pdb = Gimp.get_pdb()
-                        # Modern GIMP 3.0 run_procedure returns a result object 
-                        # that can be indexed or has a get_values() method
                         result = pdb.run_procedure('gimp-edit-paste-as-new-image', [])
-                        # result[0] is status, result[1] is the image
                         if result and len(result) > 1:
                             tile_image = result[1]
                     except:
-                        if log_func: log_func("Both wrapper and PDB fallback failed for paste_as_new")
+                        if log_func: log_func("Paste as new image failed")
                         continue
 
                 if tile_image:
-                    # Generate filename
                     filename = f"{prefix}_{idx + 1:03d}.{format_ext}"
                     full_path = os.path.join(output_path, filename)
                     save_file = Gio.File.new_for_path(full_path)
                     
-                    # Try to copy metadata if possible
+                    # Metadata preservation
                     try:
                         metadata = temp_image.get_metadata()
                         if metadata:
@@ -111,8 +97,7 @@ def slice_image(
                     except:
                         pass
                     
-                    # Save the image
-                    # Gimp.file_save uses default export options
+                    # Save results
                     Gimp.file_save(Gimp.RunMode.NONINTERACTIVE, tile_image, save_file)
                     
                     saved_paths.append(full_path)
